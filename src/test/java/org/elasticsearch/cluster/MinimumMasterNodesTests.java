@@ -25,7 +25,6 @@ import org.elasticsearch.action.admin.cluster.health.ClusterHealthStatus;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.common.Priority;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.discovery.Discovery;
 import org.elasticsearch.discovery.DiscoverySettings;
 import org.elasticsearch.discovery.zen.elect.ElectMasterService;
 import org.elasticsearch.index.query.QueryBuilders;
@@ -162,7 +161,7 @@ public class MinimumMasterNodesTests extends ElasticsearchIntegrationTest {
     }
 
     @Test
-    @TestLogging("cluster.service:TRACE,discovery:TRACE")
+    @TestLogging("cluster.service:TRACE,discovery:TRACE,indices.cluster:TRACE")
     public void multipleNodesShutdownNonMasterNodes() throws Exception {
         Settings settings = settingsBuilder()
                 .put("discovery.type", "zen")

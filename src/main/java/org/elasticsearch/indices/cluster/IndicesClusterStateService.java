@@ -611,6 +611,7 @@ public class IndicesClusterStateService extends AbstractLifecycleComponent<Indic
                 return;
             } else {
                 if (indexShard.ignoreRecoveryAttempt()) {
+                    logger.trace("ignoring recovery instruction for an existing shard {} (shard state: [{}])", indexShard.shardId(), indexShard.state());
                     return;
                 }
             }
@@ -650,6 +651,7 @@ public class IndicesClusterStateService extends AbstractLifecycleComponent<Indic
         if (indexShard.ignoreRecoveryAttempt()) {
             // we are already recovering (we can get to this state since the cluster event can happen several
             // times while we recover)
+            logger.trace("ignoring recovery instruction for shard {} (shard state: [{}])", indexShard.shardId(), indexShard.state());
             return;
         }
 
@@ -661,6 +663,10 @@ public class IndicesClusterStateService extends AbstractLifecycleComponent<Indic
                 if (entry.primary() && entry.started()) {
                     // only recover from started primary, if we can't find one, we will do it next round
                     final DiscoveryNode sourceNode = nodes.get(entry.currentNodeId());
+                    if (sourceNode == null) {
+                        logger.trace("can't recover replica because primary shard {} is assigned to an unknown node. ignoring.", entry);
+                        return;
+                    }
                     try {
                         // we are recovering a backup from a primary, so no need to mark it as relocated
                         final StartRecoveryRequest request = new StartRecoveryRequest(indexShard.shardId(), sourceNode, nodes.localNode(),
