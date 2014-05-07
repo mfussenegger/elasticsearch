@@ -74,6 +74,11 @@ public class SerialMergeSchedulerProvider extends MergeSchedulerProvider {
         return ImmutableSet.of();
     }
 
+    @Override
+    public int getMaxMerges() {
+        return 1;
+    }
+
     public static class CustomSerialMergeScheduler extends TrackingSerialMergeScheduler {
 
         private final SerialMergeSchedulerProvider provider;

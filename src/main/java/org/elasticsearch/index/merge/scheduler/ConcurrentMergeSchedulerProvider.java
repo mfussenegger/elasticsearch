@@ -84,6 +84,11 @@ public class ConcurrentMergeSchedulerProvider extends MergeSchedulerProvider {
         return ImmutableSet.of();
     }
 
+    @Override
+    public int getMaxMerges() {
+        return this.maxMergeCount;
+    }
+
     public static class CustomConcurrentMergeScheduler extends TrackingConcurrentMergeScheduler {
 
         private final ShardId shardId;

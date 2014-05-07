@@ -19,7 +19,18 @@
 
 package org.elasticsearch.index.engine.internal;
 
-import com.google.common.collect.Lists;
+import java.io.IOException;
+import java.util.*;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
 import org.apache.lucene.index.*;
 import org.apache.lucene.index.IndexWriter.IndexReaderWarmer;
 import org.apache.lucene.search.IndexSearcher;
@@ -39,6 +50,8 @@ import org.elasticsearch.common.collect.MapBuilder;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.lease.Releasable;
 import org.elasticsearch.common.lease.Releasables;
+import org.elasticsearch.common.logging.ESLogger;
+import org.elasticsearch.common.logging.Loggers;
 import org.elasticsearch.common.lucene.HashedBytesRef;
 import org.elasticsearch.common.lucene.LoggerInfoStream;
 import org.elasticsearch.common.lucene.Lucene;
@@ -75,18 +88,7 @@ import org.elasticsearch.index.translog.TranslogStreams;
 import org.elasticsearch.indices.warmer.IndicesWarmer;
 import org.elasticsearch.indices.warmer.InternalIndicesWarmer;
 import org.elasticsearch.threadpool.ThreadPool;
-
-import java.io.IOException;
-import java.util.*;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import com.google.common.collect.Lists;
 
 /**
  *
@@ -260,8 +262,7 @@ public class InternalEngine extends AbstractIndexShardComponent implements Engin
             try {
                 this.indexWriter = createWriter();
                 mergeScheduler.removeListener(this.throttle);
-                //nocommit find a good value for this?
-                this.throttle = new IndexThrottle(ConcurrentMergeScheduler.DEFAULT_MAX_MERGE_COUNT, indexWriter);
+                this.throttle = new IndexThrottle(mergeScheduler.getMaxMerges(), indexWriter, indexSettings, shardId);
                 mergeScheduler.addListener(throttle);
             } catch (IOException e) {
                 throw new EngineCreationFailureException(shardId, "failed to create engine", e);
@@ -754,8 +755,7 @@ public class InternalEngine extends AbstractIndexShardComponent implements Engin
                         currentIndexWriter().close(false);
                         indexWriter = createWriter();
                         mergeScheduler.removeListener(this.throttle);
-                        //nocommit find a good value for this?
-                        this.throttle = new IndexThrottle(ConcurrentMergeScheduler.DEFAULT_MAX_MERGE_COUNT, indexWriter);
+                        this.throttle = new IndexThrottle(mergeScheduler.getMaxMerges(), indexWriter, indexSettings, shardId);
                         mergeScheduler.addListener(throttle);
                         // commit on a just opened writer will commit even if there are no changes done to it
                         // we rely on that for the commit data translog id key
@@ -1579,15 +1579,17 @@ public class InternalEngine extends AbstractIndexShardComponent implements Engin
         private final InternalLock lockReference = new InternalLock(new ReentrantLock());
         private final AtomicInteger numMergesInFlight = new AtomicInteger(0);
         private final int maxNumMerges;
+        private final ESLogger logger;
 
         private static final Releasable DUMMY = new Releasable() {
             @Override
             public void close() throws ElasticsearchException {}
         };
 
-        public IndexThrottle(int maxNumMerges, IndexWriter writer) {
+        public IndexThrottle(int maxNumMerges, IndexWriter writer, Settings indexSettings, ShardId shardId) {
             this.maxNumMerges = maxNumMerges;
             this.writer = writer;
+            this.logger = Loggers.getLogger(getClass(), indexSettings, shardId);
         }
 
         public Releasable acquireThrottle() {
@@ -1598,17 +1600,18 @@ public class InternalEngine extends AbstractIndexShardComponent implements Engin
            return lock.acquire();
         }
 
-
         @Override
         public void beforeMerge(OnGoingMerge merge) {
             if (numMergesInFlight.incrementAndGet() > maxNumMerges && writer.hasPendingMerges()) {
-               lock = lockReference;
+                logger.warn("now throttling indexing: numMergesInFlight={}, maxNumMerges={}", numMergesInFlight, maxNumMerges);
+                lock = lockReference;
             }
         }
 
         @Override
         public void afterMerge(OnGoingMerge merge) {
             if (numMergesInFlight.decrementAndGet() <= maxNumMerges && !writer.hasPendingMerges()) {
+                logger.warn("stop throttling indexing: numMergesInFlight={}, maxNumMerges={}", numMergesInFlight, maxNumMerges);
                 lock = null;
             }
         }
