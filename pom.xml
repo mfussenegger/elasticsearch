@@ -49,7 +49,7 @@
         </repository>
         <repository>
             <id>Release Candidate</id>
-            <url>http://people.apache.org/~rmuir/fake_staging_area/lucene-solr-4.8.1-r1592647/lucene/maven/</url>
+            <url>http://people.apache.org/~rmuir/fake_staging_area/lucene-solr-4.8.1-r1593252/maven/</url>
         </repository>
     </repositories>
 
