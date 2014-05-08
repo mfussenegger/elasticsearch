@@ -100,8 +100,9 @@ public final class RateLimitedFSDirectory extends FilterDirectory{
         protected void flushBuffer(byte[] b, int offset, int len) throws IOException {
             bytesSinceLastRateLimit += len;
             if (bytesSinceLastRateLimit >= rateLimiter.getMinPauseCheckBytes()) {
+                long pause = rateLimiter.pause(bytesSinceLastRateLimit);
                 bytesSinceLastRateLimit = 0;
-                rateListener.onPause(rateLimiter.pause(bytesSinceLastRateLimit));
+                rateListener.onPause(pause);
             }
             if (bufferedDelegate != null) {
                 bufferedDelegate.flushBuffer(b, offset, len);
