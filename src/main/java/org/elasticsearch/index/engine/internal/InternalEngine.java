@@ -1596,16 +1596,22 @@ public class InternalEngine extends AbstractIndexShardComponent implements Engin
 
         @Override
         public void beforeMerge(OnGoingMerge merge) {
-            if (numMergesInFlight.incrementAndGet() > maxNumMerges) {
-                logger.info("now throttling indexing: numMergesInFlight={}, maxNumMerges={}", numMergesInFlight, maxNumMerges);
+          int count = numMergesInFlight.incrementAndGet();
+          if (count > maxNumMerges) {
+                if (count == maxNumMerges+1) {
+                    logger.info("now throttling indexing: numMergesInFlight={}, maxNumMerges={}", numMergesInFlight, maxNumMerges);
+                }
                 lock = lockReference;
             }
         }
 
         @Override
         public void afterMerge(OnGoingMerge merge) {
-            if (numMergesInFlight.decrementAndGet() <= maxNumMerges) {
-                logger.info("stop throttling indexing: numMergesInFlight={}, maxNumMerges={}", numMergesInFlight, maxNumMerges);
+            int count = numMergesInFlight.decrementAndGet();
+            if (count <= maxNumMerges) {
+                if (count == maxNumMerges) {
+                    logger.info("stop throttling indexing: numMergesInFlight={}, maxNumMerges={}", numMergesInFlight, maxNumMerges);
+                }
                 lock = NOOP_LOCK;
             }
         }
