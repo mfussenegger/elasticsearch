@@ -27,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -39,6 +40,7 @@ import org.apache.lucene.search.SearcherFactory;
 import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.LockObtainFailedException;
+import org.apache.lucene.store.NoLockFactory;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
 import org.elasticsearch.ElasticsearchException;
@@ -262,7 +264,7 @@ public class InternalEngine extends AbstractIndexShardComponent implements Engin
             try {
                 this.indexWriter = createWriter();
                 mergeScheduler.removeListener(this.throttle);
-                this.throttle = new IndexThrottle(mergeScheduler.getMaxMerges(), indexWriter, indexSettings, shardId);
+                this.throttle = new IndexThrottle(mergeScheduler.getMaxMerges(), logger);
                 mergeScheduler.addListener(throttle);
             } catch (IOException e) {
                 throw new EngineCreationFailureException(shardId, "failed to create engine", e);
@@ -755,7 +757,7 @@ public class InternalEngine extends AbstractIndexShardComponent implements Engin
                         currentIndexWriter().close(false);
                         indexWriter = createWriter();
                         mergeScheduler.removeListener(this.throttle);
-                        this.throttle = new IndexThrottle(mergeScheduler.getMaxMerges(), indexWriter, indexSettings, shardId);
+                        this.throttle = new IndexThrottle(mergeScheduler.getMaxMerges(), this.logger);
                         mergeScheduler.addListener(throttle);
                         // commit on a just opened writer will commit even if there are no changes done to it
                         // we rely on that for the commit data translog id key
@@ -1572,31 +1574,23 @@ public class InternalEngine extends AbstractIndexShardComponent implements Engin
         }
     }
 
+
     private static final class IndexThrottle implements MergeSchedulerProvider.Listener {
 
-        private final IndexWriter writer;
-        private volatile InternalLock lock;
+        private static final InternalLock NOOP_LOCK = new InternalLock(new NoOpLock());
         private final InternalLock lockReference = new InternalLock(new ReentrantLock());
         private final AtomicInteger numMergesInFlight = new AtomicInteger(0);
         private final int maxNumMerges;
         private final ESLogger logger;
 
-        private static final Releasable DUMMY = new Releasable() {
-            @Override
-            public void close() throws ElasticsearchException {}
-        };
+        private volatile InternalLock lock = NOOP_LOCK;
 
-        public IndexThrottle(int maxNumMerges, IndexWriter writer, Settings indexSettings, ShardId shardId) {
+        public IndexThrottle(int maxNumMerges, ESLogger logger) {
             this.maxNumMerges = maxNumMerges;
-            this.writer = writer;
-            this.logger = Loggers.getLogger(getClass(), indexSettings, shardId);
+            this.logger = logger;
         }
 
         public Releasable acquireThrottle() {
-            final InternalLock lock = this.lock;
-            if (lock == null) {
-                return DUMMY;
-            }
             return lock.acquire();
         }
 
@@ -1612,8 +1606,37 @@ public class InternalEngine extends AbstractIndexShardComponent implements Engin
         public void afterMerge(OnGoingMerge merge) {
             if (numMergesInFlight.decrementAndGet() <= maxNumMerges) {
                 logger.info("stop throttling indexing: numMergesInFlight={}, maxNumMerges={}", numMergesInFlight, maxNumMerges);
-                lock = null;
+                lock = NOOP_LOCK;
             }
+        }
+    }
+
+    private static final class NoOpLock implements Lock {
+
+        @Override
+        public void lock() {}
+
+        @Override
+        public void lockInterruptibly() throws InterruptedException {
+        }
+
+        @Override
+        public boolean tryLock() {
+            return true;
+        }
+
+        @Override
+        public boolean tryLock(long time, TimeUnit unit) throws InterruptedException {
+            return true;
+        }
+
+        @Override
+        public void unlock() {
+        }
+
+        @Override
+        public Condition newCondition() {
+            throw new UnsupportedOperationException("NoOpLock can't provide a condition");
         }
     }
 }
