@@ -205,6 +205,13 @@ The maximum number of concurrent merge threads that may run at once. Defaults
 to `1` which works best with spinning-magnets disks.  If you are using
 a good solid-state disk (SSD) instead then try setting this to `3`.
 
+coming[1.2.0]
+`index.merge.scheduler.max_merge_count`::
+
+The maximum merge backlog (running or pending merges) after which index throttling
+kicks in.  This setting must be at least as high as max_thread_count.  Index throttling
+will restrict indexing to one thread to allow the merges backlog to catch up.
+
 [float]
 ==== SerialMergeScheduler
 
