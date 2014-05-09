@@ -1580,6 +1580,7 @@ public class InternalEngine extends AbstractIndexShardComponent implements Engin
         private static final InternalLock NOOP_LOCK = new InternalLock(new NoOpLock());
         private final InternalLock lockReference = new InternalLock(new ReentrantLock());
         private final AtomicInteger numMergesInFlight = new AtomicInteger(0);
+        private final AtomicBoolean isThrottling = new AtomicBoolean();
         private final int maxNumMerges;
         private final ESLogger logger;
 
@@ -1596,20 +1597,18 @@ public class InternalEngine extends AbstractIndexShardComponent implements Engin
 
         @Override
         public void beforeMerge(OnGoingMerge merge) {
-          int count = numMergesInFlight.incrementAndGet();
-          if (count > maxNumMerges) {
-                if (count == maxNumMerges+1) {
-                    logger.info("now throttling indexing: numMergesInFlight={}, maxNumMerges={}", numMergesInFlight, maxNumMerges);
-                }
-                lock = lockReference;
+          if (numMergesInFlight.incrementAndGet() > maxNumMerges) {
+              if (isThrottling.getAndSet(true) == false) {
+                  logger.info("now throttling indexing: numMergesInFlight={}, maxNumMerges={}", numMergesInFlight, maxNumMerges);
+              }
+              lock = lockReference;
             }
         }
 
         @Override
         public void afterMerge(OnGoingMerge merge) {
-            int count = numMergesInFlight.decrementAndGet();
-            if (count <= maxNumMerges) {
-                if (count == maxNumMerges) {
+            if (numMergesInFlight.decrementAndGet() < maxNumMerges) {
+                if (isThrottling.getAndSet(false)) {
                     logger.info("stop throttling indexing: numMergesInFlight={}, maxNumMerges={}", numMergesInFlight, maxNumMerges);
                 }
                 lock = NOOP_LOCK;
